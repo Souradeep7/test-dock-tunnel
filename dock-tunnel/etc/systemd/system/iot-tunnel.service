@@ -1,0 +1,12 @@
+[Unit]
+After=ssh.service systemd-logind.service network-online.target systemd-resolved.service time-set.target
+Wants=time-set.target
+
+[Service]
+User=iot
+Group=iot
+Type=forking
+ExecStart=/usr/bin/iot-tunnel
+
+[Install]
+WantedBy=default.target
