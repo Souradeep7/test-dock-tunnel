@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+#######################################################################################################################
+#
+# This script is run post removing the dock tunnel package. It performs the following actions:
+# - Removes the iot user's ssh keys and sudo privileges (it is bad practice to remove a user and orphan files)
+# - Removes stunnel keys
+# - Removes the tunnel service
+#
+#######################################################################################################################
+
+# We don't remove the iot user, but we will remove the ssh keys
+echo "Remove the iot user ssh keys and sudo authority"
+rm -rf /home/iot/.ssh/id*
+rm -f /etc/sudoers.d/iot
+
+# Remove stunnel keys
+echo "Remove stunnel keys"
+rm /etc/stunnel/stunnel.pem
+
+# Remove the tunnel service and remove it from cron
+echo "Remove the tunnel service and remove it from cron"
+sudo systemctl stop iot-tunnel
+sudo systemctl disable iot-tunnel
+su iot << "EOF"
+  (crontab -l 2>/dev/null | grep -v iot-tunnel) | crontab -
+EOF
+sudo systemctl daemon-reload
+
+# Restore the ubuntu account
+echo "Enable ubuntu login"
+sudo usermod --expiredate '""' ubuntu
+
+# Expire the ubuntu account so it cannot be logged into
+echo "Expire the iot account so it cannot be accessed"
+sudo usermod --expiredate 1 iot

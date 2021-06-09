@@ -1,0 +1,10 @@
+Package: canaria-dock-tunnel
+Version: 0.0.1
+Section: custom
+Priority: optional
+Architecture: all
+Essential: no
+Pre-Depends: autossh,stunnel
+Installed-Size: 8192
+Maintainer: canariatechnologies.com
+Description: Package to tunnel to the dock gateway from remote docking stations

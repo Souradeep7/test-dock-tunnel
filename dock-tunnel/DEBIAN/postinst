@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+
+#######################################################################################################################
+#
+# This script is run post installing the dock tunnel package. It performs the following actions:
+# - Creates the iot user
+# - Creates stunnel keys
+# - Configures the tunnel service
+# - Copies team and gateway public keys to iot authorized_keys
+# - Expires the ubuntu account
+#
+#######################################################################################################################
+
+# Create the iot user
+echo "Create iot user"
+if ! grep -q "^iot:" /etc/passwd ; then
+  sudo adduser --system --shell /bin/bash --group --disabled-password --home /home/iot iot
+  sudo su iot -c "touch ~/.hushlogin"
+fi
+sudo sh -c 'echo "iot ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/iot'
+sudo su iot -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+ssh-keygen -q -t rsa -f ~/.ssh/id_new -N '' <<< ""$'\n'"y" 2>&1 >/dev/null
+
+# Create stunnel keys
+echo "Create stunnel keys"
+if [[ ! -f /etc/stunnel/stunnel.pem ]] ; then
+  openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 -subj "/C=AU/ST=QLD/L=Brisbane/O=Engineering/CN=canariatechnologies.com" -keyout key.pem -out cert.pem
+  cat key.pem cert.pem > /etc/stunnel/stunnel.pem
+  sudo chown stunnel4.stunnel4 /etc/stunnel/stunnel.pem
+  rm key.pem cert.pem
+fi
+
+# Configure service to ensure the tunnels are open and add it to cron
+echo "Configure service to ensure the tunnels are open and add it to cron"
+sudo systemctl enable iot-tunnel
+su iot << "EOF"
+  if ! crontab -l 2>/dev/null | grep -q iot-tunnel ; then
+    (crontab -l 2>/dev/null; echo "*/15 * * * * iot-tunnel") | crontab -
+  fi
+EOF
+
+# Copy public stunnel-ssh-keys so the team can log in as the iot account
+echo "Copy team public keys to iot account"
+cat >> /home/iot/.ssh/authorized_keys << "EOF"
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDB6QmYscAWGgF3cD7Lr0NzSKNeMPLw6cazC2GZGnWO1a6ppX5/s9knIfsdyrdUlwJkiQ96lhX8KthvEW6Ez/I+cgwpwQ9LD+PEDVk3nQlLR85LgY5d1/M2GbO0qtO/klc8y+FVyd3DYAtqKX9s6N9Fzr85ClSA0QihB36b22NFF5eCW9UxkYR7/ogNoUbxeRcnPfdhS179YRNR1rxVB8TKP2hDzZ3vdatLOzukJa42Y7bRBAfwtVO8kdURGI1C5TDRrnk4vXzmLOp3rzG74AF6giPqL/DW9otg+bAQIOoqfrmUqOZTuDATfHRVppSL3zFD3dHuB/MqS8JLN98cDBGooqLNybh0cOvZypxrqJ2+l0lGuuwB60lGMAcnqig48vlI99kbm6KqmdSZ/ayvNDmIN//Wn3O2SvxwhFJUs1xQGWfOD78iDGAr+Ljk+ZsJFsogTi8NJTc65F9sL/J3VLiUqYhj4KcAlRfbrORPkHbOwu7kIIFEMbgOzdwHGQ+Y5OM= justin@canaria
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC/kLnnSZClgn6QWugARHMhAU11Bf42N6yydtj4+c3ngPhAfJY3lv0AK1XUsDr9Mz/ErnPIps6nsu7xVhrY+uCE0zCmU4MpRbtO004CFT+6mNV+Lf3YfW+QmjFVh4GJ7HpN7it8mDOe6irbcX5SNVZ5mM+eB0KHm/bvIX7ge29cxDOvB1NTHL6TswzLA13TRA6SvkS49ipzMFSzVvLW+QZPMV8ZJ31uDjMwq7FsvNG84TVUV3vlSFbUt7S7zotwW0Iv42yh+UGt/g7rWD1z7ek5KlhIvOqdoif93eUtfKbcjU/QAaPv9GYVi4z5vl3M0fzctS4G0RfG8gzivOFwyMHLNFxMiWHQl74NMe+D0XhfzrKKE/MCVDQxca2aj4c8bfVUadgFjMa/rISIguY6tPQ/4PkyiFwgCyMV2QxxoCWklVvddkKZTJDJOz2fwczqZnQzbbhUpFxXwxYt+W1VBVKYLwlwsrxoeqTC98XHPQtLgE+3o8yYMONy8tcJr5i/OJs= nicholas@SUNDER
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDrfWy5yUXhTfxAYcpdae531J2NziSSD8bfTnzbPL2emOCGBTPYnYEgkWuAk9TEYyXoBgAQXNTJU7QNydnUnvIK/Iba7wYii+V/YjRX8sNnHbssK2fMRCTz6Q7/Ol1gq5JX2gWGjOTKxf4hj/p8nLFWmV3XkdAGQ2g5Bnp2mG1u7RHLZvYaXXgz+0DHoC2rTsYgazoavtHookBxD1J/Z1w8vJ1IV/gF5kSsGi86SAxAofdMMgHfDjGdQsbKYXAsWn6UFQS4m1yce9jf/0cSINgLptUU+EowJY8iFW1M6z1heC/fZmAKytKINU4P033IQS/pln7KAlQ/Yp1GsqTdz/o7 azuread\pradyraja@DESKTOP-GQ2E1QP
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCg7BjLsJOqKEFsXQnCmpCVihow4+wViKK/Dt3tlK37Tu7CjU4JIZ3AMFbJMRbIf6k5QpoMo34gBxR13o9/qurvxt6PGBt1vXmTsDw17UR3737uW/GQjbc7iyAimoKn8Ugb92BRANdQYMs0DlencKyFHXsRxPSM5ko9NWIAn8TxaaMvApAw+i7lA6tP+ZY/8ii/ODo3mEKd/G9dHWMKpJWm5waVGy/N9/Bl+v5HTjctDsAlewCPuWR2pSxvtzSRJJDZf374QyQsUr27gKNwCuRPjFmgZEyVJMoeu4b+OnIffgtcLbnQe0Kkv4nWo1+GGM+XNa9tSl6+Wi5+BWmN/tlm6RU/eFZ4EBPr2FS76SL7ua4empS9sfBTBi/7ywTSyC2JVvnuy3hrrgv4wFOQepkNhJ0YttXsvqS/HwWUtAPUbRV00GDHyosEoe/CQMPIlbETVR78LuMeoNBv+CsOMxvErGnYaGWNBMnwZIXrgOyMDsYErvAHM3s67SSQ6L+YwB8= iot@ip-172-31-14-229
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDZZxpofd+2gvTQ6K2XIa3q2Qx6+1QhRJI/esXW7gFuqSbJUqCTjd+qTtXNdj/brU4KuA1wwecPCvAGGegSPeTIfF9XRuWaIJHxQTRum8iphjbG+uk7jUE4Mdw0LQxEOOB3YNh4W7t1L4Vkrt4wmCO96b/4aYctbO4j+GNy2HsrkasiAl6DbJtdAJY7bdisGheujd/r+x6AY8S7XA+WK6CC6WunHhSlHtMCrnTNdgbLExltLJ42wLdLLK1CmsXvRBdYVlpfMxQzw1ArLkkAxJlC+4cnjokIFWt2msNdytG/cB0nkC8BkGx70/YHxKuQhf7ia47Ze62H+tWHZzGhEMypCe1y/1aWqPzLLE2M7KoWf5qDdpO1DL8x0TaYibR4NV7sHQGYajO8QDlwJ51MeMDq2GyiyHK5oExtfLQZV6VrtmtqWMWBc/ozC4eFM7LNoOb73vT+Jw8hRgB+IO5wFRhrwhJoa8qh1IKzX/G7zhv8lU0qjIaE2G0Kril4zQJxhj8= iot@devdock.canariatechnologies.com
+EOF
+
+cat > /home/iot/.ssh/id_rsa << "EOF"
+-----BEGIN OPENSSH PRIVATE KEY-----
+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
+-----END OPENSSH PRIVATE KEY-----
+EOF
+
+cat > /home/iot/.ssh/id_rsa.pub << "EOF"
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC/C9mvycicZK2L+j1Co208d6ZkbtHAZr2ohsS77QSrZh3KYKFFJTrB6vdZZ+IkfBs3pzhS5XUXgCAL+70JW8CTgCSe6F4H4Bny+AV/sfNqwGtW8MZClpYop1qSSIe+AzqkHFarvJngzABsvtJz+iTKeUfzt2gsPMljhLk3UYQzbXkPsPntfeFh4DU+CsylYb9Lpbn1uHhU3mGu6WEJjdmvtGK42pebuPFPwUNbdBxWC7xq8f4yKx9T8/2rbN2fJoc4+iKGFN2TO96/LoHlTx2hkKAiryWn/J8DGYEZ9zDG+xoDYDQ+E4E11R3d2+e+msYeU0xyawJYi5RR1yb3uH3Q8k8ARzkrNcYfQux0qvu3g26dKFNyi6AkzmV5PvhA8g4Tqw9ncCepmjkYF3sPGjdasQIQCpSfEmyGqcm7cbH516D39OiZERQGpf9Iea778w27eMqTBaAvukVPCfJ7Crs/fuodpO563BfGIGcS90ixU9mJ9kUMgopEm4x/PJ0TYWU= iot@dock-dca632cbb25b
+EOF
+
+# Remove the first version of the scripts
+if [[ -f /etc/systemd/system/dock-management.service ]] ; then
+  sudo systemctl stop dock-management
+  sudo systemctl disable dock-management
+  sudo rm -f /etc/systemd/system/dock-management.service
+fi
+sudo rm -f /usr/local/bin/dock-management.bash
+sudo rm -f /usr/local/bin/dock-timesync-fallback.bash
+
+# Expire the ubuntu account so it cannot be logged into
+echo "Expire the ubuntu account so it cannot be accessed"
+sudo usermod --expiredate 1 ubuntu

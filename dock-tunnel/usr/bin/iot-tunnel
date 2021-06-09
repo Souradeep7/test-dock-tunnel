@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+#######################################################################################################################
+#
+# Checks whether stunnel is running and starts it if it isn't
+#
+# Checks whether we have created generated new keys to connect to the gateway and generates them if we have not. This
+# will happen only the first time the dock boots.
+#
+# Checks whether autossh is running and starts it if it isn't
+#
+#######################################################################################################################
+
+done_timesync=0
+function do_timesync {
+  if [[ "$done_timesync" -eq 0 ]] ; then
+    sudo dock-timesync-fallback
+    done_timesync=1
+  fi
+}
+
+# Check for stunnel and start it if it isn't already running
+if ! pgrep -x -u stunnel4 stunnel4 >/dev/null; then
+  echo Starting stunnel
+  do_timesync
+  sudo stunnel
+fi
+
+# Check if we can connect to the gateway, but need a new key
+if [[ ! -f ~/.ssh/connected ]] ; then
+  echo "Have not connected to the gateway yet, set the hostname and create keys"
+  do_timesync
+  if ! ssh -o StrictHostKeyChecking=no iot@127.0.0.1 -p 422 2>&1 ; then
+    if ssh -o StrictHostKeyChecking=no iot-setup@127.0.0.1 -p 422 echo > /dev/null ; then
+      echo "Generating the new keys"
+      sudo hostnamectl set-hostname dock-$(ip link show eth0 | grep "..:..:..:..:..:.." | awk '{print $2}' | sed 's/://g')
+      ssh-keygen -q -t rsa -f ~/.ssh/id_new -N '' <<< ""$'\n'"y" 2>&1 >/dev/null
+      if ssh iot-setup@127.0.0.1 -p 422 ./bin/add-cert -a /home/iot/.ssh/authorized_keys < ~/.ssh/id_new.pub >/dev/null && ssh -i ~/.ssh/id_new iot@127.0.0.1 -p 422 ; then
+        echo "Connected succesfully with new keys"
+        mv ~/.ssh/id_new.pub ~/.ssh/id_rsa.pub && mv ~/.ssh/id_new ~/.ssh/id_rsa && touch ~/.ssh/connected
+      else
+        echo "Hmmmm, still can't connect"
+      fi
+    fi
+  fi
+fi
+
+# Check for phone-home / autossh and start it if it isn't already running
+if ! pgrep -x -u iot autossh >/dev/null ; then
+  echo Starting autossh
+  do_timesync
+  (
+    autossh -C -N -R 0:localhost:22 iot@127.0.0.1 -p 422 2>&1 | while read -r line
+    do
+      echo "Connect from $(hostname) on port $(echo $line | awk '{ print $3 }') at $(date)" | ssh iot@127.0.0.1 -p 422 tee -a connections > /dev/null
+    done
+  )&
+fi
+

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+#######################################################################################################################
+#
+# Checks whether the system clock is being synchronized and if it is not it waits until the network is ready then
+# does a request from google.com and reads the time from the response headers and updates the clock.
+#
+# Not all networks need this, but some do, and it is unclear why at this point.
+#
+#######################################################################################################################
+
+if timedatectl status | grep "System clock synchronized" | grep no ; then
+  echo "Fallback time sync method required"
+
+  TRYCOUNT=0
+  while [[ $(ip a | grep 'inet ' | grep -v -c 127.0.0.1) -eq 0 ]] ; do
+    if [[ $TRYCOUNT -ge 90 ]] ; then
+      echo "Maximum tries exceeded, exiting"
+      exit 1
+    fi
+    ((TRYCOUNT=$TRYCOUNT+1))
+    sleep 1
+  done
+  while [[ -z "$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)" ]] ; do
+    if [[ $TRYCOUNT -ge 90 ]] ; then
+      echo "Maximum tries exceeded, exiting"
+      exit 1
+    fi
+    ((TRYCOUNT=$TRYCOUNT+1))
+    sleep 1
+  done
+
+  echo "Network ready IP addresses are $(ip a | grep 'inet ' | grep -v 127.0.0.1 | awk '{ print $2}' | xargs)"
+  DATETIME="$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)Z"
+  echo "Set time to $DATETIME"
+  date -s "$DATETIME"
+else
+  echo "Time synchronized correctly, no need for fallback"
+fi

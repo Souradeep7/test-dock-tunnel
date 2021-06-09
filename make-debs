@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+#######################################################################################################################
+#
+# This script is run post installing the dock tunnel package. It performs the following actions:
+# - Expands environment variables in the config files
+# - Updates file permissions
+#
+#######################################################################################################################
+
+tunneldir=$(dirname $0)
+
+if [[ "$DOCK" == "" ]] ; then
+  . $tunneldir/.env
+fi
+
+rm -rf $tunneldir/build
+mkdir -p $tunneldir/build/dock-tunnel
+mkdir -p $tunneldir/build/packages
+cp -r $tunneldir/dock-tunnel $tunneldir/build/
+
+envsubst < $tunneldir/dock-tunnel/etc/profile.d/dock-vars > $tunneldir/build/dock-tunnel/etc/profile.d/dock-vars
+envsubst < $tunneldir/dock-tunnel/etc/stunnel/stunnel.conf > $tunneldir/build/dock-tunnel/etc/stunnel/stunnel.conf
+
+sudo chmod 755 $tunneldir/build/dock-tunnel/DEBIAN/postinst
+sudo chmod 755 $tunneldir/build/dock-tunnel/DEBIAN/postrm
+
+sudo chmod 755 $tunneldir/build/dock-tunnel/usr/bin/dock-timesync-fallback
+sudo chmod 755 $tunneldir/build/dock-tunnel/usr/bin/iot-tunnel
+sudo chmod 755 $tunneldir/build/dock-tunnel/etc/profile.d/dock-vars
+sudo chmod 664 $tunneldir/build/dock-tunnel/etc/systemd/system/iot-tunnel.service
+
+dpkg-deb --build $tunneldir/build/dock-tunnel $tunneldir/build/packages
