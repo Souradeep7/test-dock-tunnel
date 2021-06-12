@@ -31,7 +31,7 @@ jobs:
       with:
         repository: pradymr/ci-test
         ref: main
-        token: ${{ secrets.ACCESS_TOKEN }}
+        token: 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
         path: ci-test
         
     
