@@ -1,0 +1,78 @@
+
+
+name: Run CICD
+
+on:
+  push:
+   
+  create:
+
+  pull_request:
+    types: [ opened, reopened, synchronize]
+
+env:
+  BUILD_DIR: ./build/packages
+  S3_BUCKET: s3://ci-test-dock-builds
+  REPO_NAME: ${{ github.event.repository.name }}
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: main
+
+      
+    steps:
+    
+    - name: Checkout cicd repo
+      uses: actions/checkout@v2
+      with:
+        repository: pradymr/ci-test
+        ref: main
+        token: ${{ secrets.ACCESS_TOKEN }}
+        path: ci-test
+        
+    
+    - name: Extract branch name
+      shell: bash
+      run: |
+          bash ./scripts/get-branch-name.bash
+      id: extract_branch
+      working-directory: ci-test
+      
+    - name: checkout main repo
+      uses: actions/checkout@v2
+      with:
+       ref: ${{ steps.extract_branch.outputs.branch }}
+       fetch-depth: 0
+       path: main
+       
+      
+    - name: Configure cicd
+      shell: bash
+      run: |
+          bash ./scripts/configure-cicd.bash $repo $main_dir
+      working-directory: ci-test
+      env:
+        repo: ${{ env.REPO_NAME }}
+        main_dir: main
+     
+    - name: run build 
+      if: ${{ github.event_name == 'pull_request' || ( github.event_name == 'push' && github.event.before != 0000000000000000000000000000000000000000) }}
+      run: bash make-deb.bash
+
+
+    - name: upload artifacts in S3
+      uses: ./main/.github/actions/upload-artifacts
+      with:
+        branch_name: ${{ steps.extract_branch.outputs.branch }}
+        package_type: deb
+        build_dir: ${{ env.BUILD_DIR }}
+        zip_name: ${{ env.REPO_NAME }}
+        upload_location: ${{ env.S3_BUCKET }}/${{ env.REPO_NAME }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_DEFAULT_REGION: 'us-east-1'
+        working_dir: main
