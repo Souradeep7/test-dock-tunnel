@@ -61,7 +61,7 @@ jobs:
      
     - name: run build 
       if: ${{ github.event_name == 'pull_request' || ( github.event_name == 'push' && github.event.before != 0000000000000000000000000000000000000000) }}
-      run: bash make-deb.bash
+      run: bash make-debs
 
 
     - name: upload artifacts in S3
